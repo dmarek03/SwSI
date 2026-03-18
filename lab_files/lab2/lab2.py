@@ -14,7 +14,7 @@ def _():
 @app.cell
 def _():
     from pathlib import Path
-
+    import matplotlib as plt
     import numpy as np
     import pandas as pd
     import plotly.express as px
@@ -88,15 +88,15 @@ def _(np):
 
     def initialize_theta(size):
         # TODO: zwróć wektor wartości początkowych o rozmiarze `size`
-        ...
+        return np.zeros(size)
 
     def loss_function(theta, x, y):
         # TODO: oblicz i zwróć wartość funkcji kosztu J(theta)
-        ...
+        return 0.5 * np.sum((x @ theta - y)**2)
 
     def loss_gradient(theta, x, y):
         # TODO: oblicz i zwróć gradient J względem theta
-        ...
+        return x.T @ (x @ theta - y)
 
     def batch_least_mean_squares(learning_rate, x, y):
         intercept = np.ones(y.size)
@@ -106,7 +106,7 @@ def _(np):
 
         while iteration < MAX_ITERATION:
             # TODO: zaktualizuj theta
-            ...
+            theta -= learning_rate * loss_gradient(theta, x_with_intercept, y)
             iteration += 1
 
         return theta, loss_function(theta, x_with_intercept, y)
@@ -120,7 +120,12 @@ def _(np):
         while iteration < MAX_ITERATION:
             for i in range(y.size):
                 # TODO: zaktualizuj theta
-                ...
+                x_i = x_with_intercept[i]
+                y_i = y[i]
+
+                error = x_i @ theta - y_i
+                theta -= learning_rate * error * x_i
+
             iteration += 1
 
         return theta, loss_function(theta, x_with_intercept, y)
@@ -129,6 +134,7 @@ def _(np):
         LEARNING_RATE,
         batch_least_mean_squares,
         incremental_least_mean_squares,
+        loss_function,
     )
 
 
@@ -185,7 +191,7 @@ def _(
 
     print(f"Batch LMS:       theta={theta_batch_2d_1}, J={loss_batch_2d_1:.4f}")
     print(f"Incremental LMS: theta={theta_inc_2d_1}, J={loss_inc_2d_1:.4f}")
-    return
+    return loss_batch_2d_1, theta_batch_2d_1, x_2d_1, y_2d_1
 
 
 @app.cell
@@ -203,12 +209,48 @@ def _(
 
     print(f"Batch LMS:       theta={theta_batch_2d_2}, J={loss_batch_2d_2:.4f}")
     print(f"Incremental LMS: theta={theta_inc_2d_2}, J={loss_inc_2d_2:.4f}")
+    return loss_batch_2d_2, theta_batch_2d_2, x_2d_2, y_2d_2
+
+
+@app.cell
+def _(go, loss_function, np):
+    # Tutaj umieść kod wizualizacji
+    def visualize(x, y, theta_batch, loss_batch, title):
+
+        theta0 = 0
+        theta1_vals = np.linspace(-5, 25, 100)
+        theta2_vals = np.linspace(-5, 45, 100)
+        Theta1, Theta2 = np.meshgrid(theta1_vals, theta2_vals)
+        J = np.zeros_like(Theta1)
+
+        for i in range(Theta1.shape[0]):
+            for j in range(Theta1.shape[1]):
+                theta = np.array([Theta1[i,j], Theta2[i,j]])  
+                J[i,j] = loss_function(theta, x, y) 
+
+
+        fig = go.Figure(data=[go.Surface(z=np.log(J), x=Theta1, y=Theta2)])
+        fig.add_trace(go.Scatter3d(
+        x=[theta_batch[0]], y=[theta_batch[1]], z=[loss_batch],
+        mode='markers', marker=dict(size=5, color='red'), name='Batch LMS'
+        ))
+        fig.update_layout(title=title, 
+                          scene=dict(xaxis_title='theta1', yaxis_title='theta2', zaxis_title='J'))
+
+        fig.show()
+
+    return (visualize,)
+
+
+@app.cell
+def _(loss_batch_2d_1, theta_batch_2d_1, visualize, x_2d_1, y_2d_1):
+    visualize(x_2d_1, y_2d_1, theta_batch_2d_1, loss_batch_2d_1, title='Loss function set 1')
     return
 
 
 @app.cell
-def _():
-    # Tutaj umieść kod wizualizacji
+def _(loss_batch_2d_2, theta_batch_2d_2, visualize, x_2d_2, y_2d_2):
+    visualize(x_2d_2, y_2d_2,theta_batch_2d_2, loss_batch_2d_2, title='Loss function set 2')
     return
 
 
@@ -216,6 +258,14 @@ def _():
 def _(mo):
     mo.md(r"""
     A tutaj komentarz
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Pierwszy wykres wygląda jak „złożona kartka papieru” z wieloma fałdami, co wynika z silnej korelacji między cechami danych i sprawia, że funkcja ma długie, łagodne minimum. Drugi wykres przypomina lej z wyraźnym minimum, ponieważ cechy są mniej skorelowane, co daje jednoznaczne globalne minimum. Różnica wynika z zależności między kolumnami danych: w pierwszym zestawie druga kolumna to dokładnie dwa razy pierwsza (korelacja liniowa), natomiast w drugim zestawie cechy są bardziej losowe i taki problem nie występuje
     """)
     return
 
@@ -248,8 +298,23 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(StandardScaler, housing_df):
     # Tutaj umieść kod
+
+    housing_df['powierzchnia_uzytkowa^2'] = housing_df['powierzchnia_uzytkowa'] ** 2
+
+    standard_scaler = StandardScaler()
+    X_scaled = standard_scaler.fit_transform(housing_df[['powierzchnia_uzytkowa', 'liczba_izb', 'kondygnacja', 'powierzchnia_uzytkowa^2']])
+    y = housing_df['cena_brutto_pln'].values
+
+    return X_scaled, y
+
+
+@app.cell
+def _(LEARNING_RATE, X_scaled, batch_least_mean_squares, y):
+    theta_batch_housing_df, loss_batch_housing_df = batch_least_mean_squares(LEARNING_RATE, X_scaled, y)
+
+    print(f"Batch LMS:       theta={theta_batch_housing_df}, J={loss_batch_housing_df:.4f}")
     return
 
 
@@ -371,6 +436,14 @@ def _(mo):
 def _(mo):
     mo.md(r"""
     Tutaj zapisz wnioski
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Model regresji liniowej pokazuje, jak różne cechy mieszkań wpływają na cenę brutto. Współczynniki (coef) informują, że największy wpływ mają powierzchnia użytkowa (im większe mieszkanie, tym wyższa cena) oraz dzielnica, w której się znajduje — niektóre dzielnice znacząco podnoszą lub obniżają cenę w porównaniu do dzielnicy bazowej. Kondygnacja i liczba izb mają umiarkowany wpływ, a większość zmiennych jest istotna statystycznie (P < 0.05). R² = 0.378 pokazuje, że model wyjaśnia około 38% zmienności cen, natomiast reszty są mocno skośne, co sugeruje, że prosta regresja liniowa nie uchwyciła wszystkich ekstremalnych wartości.
     """)
     return
 
@@ -501,6 +574,14 @@ def _(mo):
 def _(mo):
     mo.md(r"""
     Tutaj zapisz wnioski
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Po standaryzacji współczynniki dla powierzchni użytkowej, liczby izb i kondygnacji wzrosły liczbowo, ponieważ mierzą teraz wpływ zmiany o 1 odchylenie standardowe, a nie o jednostkę w oryginalnej skali. Kierunek wpływu i poziom istotności tych zmiennych pozostał taki sam, więc interpretacja modelu nie zmienia się, natomiast łatwiej porównać względny wpływ cech na cenę.
     """)
     return
 
