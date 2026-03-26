@@ -223,7 +223,7 @@ def _(kicks_df, pd):
     kicks_long = kicks_df.stack().reset_index()
     kicks_long.columns = ['battalion', 'year', 'deaths']
     kicks_long['year'] = pd.to_numeric(kicks_long['year'])
-    kicks_long.head()
+    kicks_long.tail(20)
     return (kicks_long,)
 
 
@@ -482,8 +482,8 @@ def _(pd):
         "http://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv",
         sep=";"
     )
-    winequality_white.head()
-    return
+    winequality_white.shape
+    return winequality_red, winequality_white
 
 
 @app.cell(hide_code=True)
