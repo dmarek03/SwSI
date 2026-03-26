@@ -87,12 +87,20 @@ def _(mo):
 @app.cell
 def _(beta0_slider, beta1_slider, n_slider, np, pd, px, sm):
     rng = np.random.default_rng(123)
-    X_demo = rng.normal(size=n_slider.value)
-    log_odds = beta0_slider.value + beta1_slider.value * X_demo
-    p_demo = 1 / (1 + np.exp(-log_odds))
-    Y_demo = rng.binomial(1, p_demo)
+    X_demo = rng.normal(size=n_slider.value) # Generujemy dane z rozkładu normalnego
+    log_odds = beta0_slider.value + beta1_slider.value * X_demo # To jest liniowa kombinacja: beta0 + beta1 * X
+    p_demo = 1 / (1 + np.exp(-log_odds)) # Zamieniamy log-odds na prawdopodobieństwo przy pomocy funkcji sigmoidalnej
+    Y_demo = rng.binomial(1, p_demo) # Na podstawie prawdopodobieństw generujemy zmienną binarną Y (0 lub 1)
 
+    # Dopasowujemy model regresji logistycznej do wygenerowanych danych
+    # add_constant dodaje wyraz wolny (intercept)
+    # Binomial() oznacza, że modelujemy zmienną 0/1
     demo_model = sm.GLM(Y_demo, sm.add_constant(X_demo), family=sm.families.Binomial()).fit()
+
+
+    # Obliczamy granicę decyzyjną modelu
+    # To punkt, gdzie model daje P(Y=1) = 0.5
+    # Czyli: beta0 + beta1 * X = 0 → X = -beta0 / beta1
     decision_boundary = -demo_model.params[0] / demo_model.params[1]
     pred_probs_demo = demo_model.predict()
 
@@ -149,7 +157,7 @@ def _(sm, train_data):
     y_titanic = train_data['Survived']
 
     titanic_model = sm.GLM(y_titanic, X_titanic, family=sm.families.Binomial()).fit()
-    titanic_model.summary()
+    print(titanic_model.summary())
     return (titanic_model,)
 
 
@@ -212,7 +220,7 @@ def _(kicks_df, pd):
     kicks_long = kicks_df.stack().reset_index()
     kicks_long.columns = ['battalion', 'year', 'deaths']
     kicks_long['year'] = pd.to_numeric(kicks_long['year'])
-    kicks_long.head()
+    kicks_long.tail(20)
     return (kicks_long,)
 
 
@@ -248,7 +256,7 @@ def _(kicks_long, pd, sm):
         sm.add_constant(kicks_model[['battalion', 'year']]),
         family=sm.families.Poisson()
     ).fit()
-    poisson_model.summary()
+    print(poisson_model.summary())
     return
 
 
@@ -312,7 +320,7 @@ def _(df_ord, np, pd, px):
     fig_ord = px.line(pred_df, x='X', y=['Low', 'Medium', 'High'],
                       title='Regresja porządkowa - prawdopodobieństwa klas',
                       labels={'value': 'Prawdopodobieństwo', 'variable': 'Klasa'})
-    return
+    return (OrderedModel,)
 
 
 @app.cell(hide_code=True)
@@ -470,8 +478,8 @@ def _(pd):
         "http://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv",
         sep=";"
     )
-    winequality_white.head()
-    return
+    winequality_white.shape
+    return winequality_red, winequality_white
 
 
 @app.cell(hide_code=True)
@@ -487,10 +495,14 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(pd, winequality_red, winequality_white):
     # Uzupełnij kod poniżej
-    ...
-    return
+    winequality_red['type'] = 'red'
+    winequality_white['type'] = 'white'
+    winequality = pd.concat([winequality_red, winequality_white])
+    winequality.head()
+    winequality['type'] = (winequality['type'] == 'white').astype(int)
+    return (winequality,)
 
 
 @app.cell(hide_code=True)
@@ -504,10 +516,18 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(sm, train_test_split, winequality):
     # Uzupełnij kod poniżej
-    ...
-    return
+    wine_train_data, wine_test_data = train_test_split(winequality, test_size=0.3, random_state=123)
+    print(f"Zbiór treningowy: {len(wine_train_data)} wierszy")
+    print(f"Zbiór testowy: {len(wine_test_data)} wierszy")
+
+    X_wine = sm.add_constant(wine_train_data.drop(columns=['type']))
+    y_wine = wine_train_data['type']
+
+    wine_model = sm.GLM(y_wine, X_wine, family=sm.families.Binomial()).fit()
+    print(wine_model.summary())
+    return (wine_train_data,)
 
 
 @app.cell(hide_code=True)
@@ -523,9 +543,17 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(OrderedModel, wine_train_data):
     # Uzupełnij kod poniżej
-    ...
+
+    X_wine_ord = wine_train_data.drop(columns=['type'])
+    y_wine_ord = wine_train_data['type']
+
+    wine_ord_model = OrderedModel(y_wine_ord, X_wine_ord, distr='logit')
+    wine_ord_result = wine_ord_model.fit(method='bfgs', disp=False)
+
+    print(wine_ord_result.summary())
+
     return
 
 
