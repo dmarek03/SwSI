@@ -42,10 +42,12 @@ def _():
     from statsmodels.api import OLS
     import sklearn.model_selection as skm
     import sklearn.linear_model as skl
-    from sklearn.preprocessing import StandardScaler
+    from sklearn.preprocessing import StandardScaler, OneHotEncoder
+    from sklearn.compose import ColumnTransformer
     from sklearn.pipeline import Pipeline
     from sklearn.decomposition import PCA
     from sklearn.cross_decomposition import PLSRegression
+    from sklearn.metrics import mean_squared_error
     from ISLP import load_data
     from ISLP.models import ModelSpec as MS
     from ISLP.models import (Stepwise,
@@ -57,14 +59,17 @@ def _():
         MS,
         OLS,
         PCA,
+        PLSRegression,
         Pipeline,
         StandardScaler,
         Stepwise,
         fit_path,
         go,
         load_data,
+        mean_squared_error,
         mo,
         np,
+        partial,
         pd,
         px,
         skl,
@@ -129,7 +134,8 @@ def _(Hitters, MS, OLS, Stepwise, np, sklearn_selected):
     hitters_MSE.fit(Hitters, Y)
     print("Zmienne wybrane wg MSE (first_peak):")
     print(hitters_MSE.selected_state_)
-    return Y, design
+    print(len(hitters_MSE.selected_state_))
+    return Y, design, hitters_MSE, strategy
 
 
 @app.cell(hide_code=True)
@@ -254,7 +260,7 @@ def _(mo):
     return l1_ratio_slider, lambda_slider
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(go, l1_ratio_slider, lambda_slider, np):
     lam = lambda_slider.value
     alpha = l1_ratio_slider.value
@@ -509,7 +515,7 @@ def _(K, go, grid_pcr, np):
     fig_pcr.update_layout(xaxis_title='Liczba składowych głównych', yaxis_title='CV MSE',
                           title='PCR — CV MSE')
     fig_pcr.show()
-    return
+    return (n_comp,)
 
 
 @app.cell(hide_code=True)
@@ -539,9 +545,54 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(
+    Pipeline,
+    StandardScaler,
+    X_bs,
+    Y,
+    kfold,
+    lambdas,
+    mean_squared_error,
+    np,
+    skl,
+    skm,
+):
     # Uzupełnij kod poniżej
     ...
+    from sklearn.impute import SimpleImputer
+
+
+
+
+    X_train_hitters, X_test_hitters, y_train_hitters, y_test_hitters = skm.train_test_split(
+        X_bs, Y, train_size=0.8, random_state=1
+    )
+
+
+    ridgeCV_hitters = skl.ElasticNetCV(alphas=lambdas, l1_ratio=0, cv=kfold)
+    pipeCV_ridge_hitters = Pipeline(steps=[
+       ('scaler', StandardScaler()),
+        ('ridge', ridgeCV_hitters)
+    ])
+    pipeCV_ridge_hitters.fit(X_train_hitters, y_train_hitters)
+    ridge_hitters = pipeCV_ridge_hitters.named_steps['ridge']
+
+    lassoCV_hitters = skl.ElasticNetCV(n_alphas=100, l1_ratio=1, cv=kfold)
+    pipeCV_lasso_hitters = Pipeline(steps=[
+       ('scaler', StandardScaler()),
+        ('lasso', lassoCV_hitters)  
+    ])
+    pipeCV_lasso_hitters.fit(X_train_hitters, y_train_hitters)
+    lasso_hitters = pipeCV_lasso_hitters.named_steps['lasso']
+
+    print(f"Ridge minimalne CV MSE: {np.min(ridge_hitters.mse_path_.mean(1)):.0f}")
+    print(f"Lasso minimalne CV MSE: {np.min(lasso_hitters.mse_path_.mean(1)):.0f}")
+
+    ridge_pred = pipeCV_ridge_hitters.predict(X_test_hitters)
+    lasso_pred = pipeCV_lasso_hitters.predict(X_test_hitters)
+
+    print(f"Ridge test MSE: {mean_squared_error(y_test_hitters, ridge_pred):.0f}")
+    print(f"Lasso test MSE: {mean_squared_error(y_test_hitters, lasso_pred):.0f}")
     return
 
 
@@ -561,9 +612,43 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(PLSRegression, Pipeline, StandardScaler, X_bs, Y, kfold, skm):
     # Uzupełnij kod poniżej
     ...
+    plsreg = PLSRegression()
+    scaler_pls = StandardScaler(with_mean=True, with_std=True)
+    pipe_pls = Pipeline([('scaler', scaler_pls), ('plsreg', plsreg)])
+
+    param_grid_pls = {'plsreg__n_components': range(1, 20)}
+    grid_pls = skm.GridSearchCV(pipe_pls,
+                                param_grid_pls,
+                                cv=kfold,
+                                scoring='neg_mean_squared_error')
+    grid_pls.fit(X_bs, Y)
+
+    print(f"Optymalna liczba składowych: {grid_pls.best_params_['plsreg__n_components']}")
+    print(f"PCR minimalne CV MSE: {-grid_pls.best_score_:.0f}")
+    return (grid_pls,)
+
+
+@app.cell
+def _(K, go, grid_pls, n_comp, np):
+    fig_pls = go.Figure()
+    fig_pls.add_scatter(x=n_comp,
+                        y=-grid_pls.cv_results_['mean_test_score'],
+                        error_y=dict(array=grid_pls.cv_results_['std_test_score'] / np.sqrt(K)),
+                        mode='lines+markers')
+    fig_pls.update_layout(xaxis_title='Liczba składowych głównych', yaxis_title='CV MSE',
+                          title='PLS — CV MSE')
+    fig_pls.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Porównując metody PRC oraz PLS, można zauważyć iż mniej głownych składowych potrzebuje metoda PLS, gdyż optymalna ich liczba wynosi 12 i przy tym uzyskuje ona rownież lepsze mininium wynoszące 114685 przy 116222 dla PRC.
+    """)
     return
 
 
@@ -599,9 +684,43 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(
+    Hitters,
+    OLS,
+    Y,
+    design,
+    hitters_MSE,
+    np,
+    partial,
+    sklearn_selected,
+    strategy,
+):
     # Uzupełnij kod poniżej
-    ...
+
+    def nCp(sigma2, estimator, X, Y):
+        n, p = X.shape
+        Yhat = estimator.predict(X)
+        RSS = np.sum((Y - Yhat)**2)
+        return -(RSS + 2 * p*sigma2)/n
+
+
+
+    sigma2 = OLS(Y, design.fit_transform(Hitters)).fit().mse_resid
+
+    nCp_fixed = partial(nCp, sigma2)
+
+    hitters_Cp = sklearn_selected(OLS,
+                                  strategy,
+                                  scoring=nCp_fixed)
+    hitters_Cp.fit(Hitters, Y)
+
+    print("Zmienne wybrane wg MSE (first_peak):")
+    print(hitters_MSE.selected_state_)
+    print(len(hitters_MSE.selected_state_))
+    print('-'*50)
+    print("Zmienne wybrane według negative Cp:")
+    print(hitters_Cp.selected_state_)
+    print(len(hitters_Cp.selected_state_))
     return
 
 
