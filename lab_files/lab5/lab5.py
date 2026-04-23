@@ -513,8 +513,70 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(mo):
     # miejsce na Twoje rozwiązanie
+
+    # możliwe zestawy węzłów
+    knot_options = {
+        "1 knot [35]": [35],
+        "2 knots [30, 50]": [30, 50],
+        "3 knots [25, 40, 60]": [25, 40, 60],
+        "4 knots [20, 30, 50, 70]": [20, 30, 50, 70],
+    }
+
+    choice = mo.ui.dropdown(
+        options=list(knot_options.keys()),
+        value="3 knots [25, 40, 60]",
+        label="Węzły"
+    )
+
+    choice
+    return choice, knot_options
+
+
+@app.cell
+def _(MS, Wage, age, age_df, age_grid, bs, choice, go, knot_options, sm, y):
+    knots = knot_options[choice.value]
+
+    bs_age = MS([bs('age', internal_knots=knots, name='bs(age)')]).fit(Wage)
+    model = sm.OLS(y, bs_age.transform(Wage)).fit()
+
+    preds = model.get_prediction(bs_age.transform(age_df))
+    bands = preds.conf_int(alpha=0.05)
+
+    fig = go.Figure()
+
+    fig.add_scatter(x=age, y=y,
+                    mode='markers', opacity=0.3,
+                    marker=dict(size=3, color='gray'),
+                    name='Dane')
+
+    fig.add_scatter(x=age_grid, y=preds.predicted_mean,
+                    mode='lines',
+                    name='B-spline',
+                    line=dict(color='red', width=2))
+
+    fig.add_scatter(x=age_grid, y=bands[:, 1],
+                    mode='lines',
+                    line=dict(color='red', dash='dash'),
+                    name='CI')
+
+    fig.add_scatter(x=age_grid, y=bands[:, 0],
+                    mode='lines',
+                    line=dict(color='red', dash='dash'),
+                    showlegend=False)
+
+
+    for kn in knots:
+        fig.add_vline(x=kn, line_dash='dot', line_color='blue')
+
+    fig.update_layout(
+        title=f'B-spline, węzły: {knots}',
+        xaxis_title='Age',
+        yaxis_title='Wage'
+    )
+
+    fig
     return
 
 
@@ -572,8 +634,10 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(mo):
     # miejsce na Twoje rozwiązanie
+
+    slider = mo.ui.slider(steps=[3, 6, 10, 20],label="Slider")
     return
 
 
