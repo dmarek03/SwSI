@@ -472,7 +472,7 @@ def _(MS, Wage, bs, sm, y):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Model ma 6 kolumn (stopień 3 + 3 węzły wewnętrzne), plus wyrazcwolny — 7 stopni swobody łącznie.
+    Model ma 6 kolumn (stopień 3 + 3 węzły wewnętrzne), plus wyraz wolny — 7 stopni swobody łącznie.
     Współczynniki B-spline same w sobie są trudne do interpretacji (każdy odpowiada funkcji bazowej o zwartym nośniku), dlatego kluczowym wynikiem jest tu **wykres**. Pionowe przerywane linie zaznaczają położenie węzłów — mniej więcej widać, że krzywa zmienia charakter w tych miejscach.
     """)
     return
@@ -507,7 +507,7 @@ def _(mo):
     #### Ćwiczenie 1: wpływ ustawienia węzłów
 
     Sprawdź jak liczba i położenie węzłów wpływa na dopasowaną krzywą.
-    Przetestuj np. `internal_knots=[30, 50]`, `[20, 30, 50, 70]`, `[35]` - wygodnie zrobić to np. sliderem marimo.
+    Przetestuj np. `internal_knots=[30, 50]`, `[20, 30, 50, 70]`, `[35]`.
     """)
     return
 
