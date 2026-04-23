@@ -32,7 +32,7 @@ Notebook powinien zawierać kolejno:
 
 1. **Wczytanie i spłaszczenie danych** — przekształcenie zagnieżdżonego JSONa do postaci, w której jeden wiersz = jeden mecz
 2. **Ekstrakcja cech** — wybierz i uzasadnij cechy, które Twoim zdaniem najlepiej odróżniają rangi; może to być np. agregacja statystyk graczy (średnie, sumy), cechy meczu jako całości lub cokolwiek innego, co wydaje Ci się sensowne
-3. **Eksploracja i wizualizacja** — zbadaj rozkład wybranych cech w podziale na tiery; skomentuj co widzisz
+git 
 4. **Model** — dopasuj co najmniej jeden model klasyfikacji (regresja logistyczna, GLM, drzewo decyzyjne lub ich kombinacja); oceń jakość na zbiorze walidacyjnym
 5. **Predykcja i submission** — wygeneruj plik CSV z predykcjami na zbiorze testowym
 
