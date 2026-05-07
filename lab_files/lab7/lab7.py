@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.3"
+__generated_with = "0.20.4"
 app = marimo.App(width="medium")
 
 
@@ -29,6 +29,7 @@ def _():
     import pandas as pd
     import matplotlib.pyplot as plt
     import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
     from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor, plot_tree
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
     from sklearn.inspection import permutation_importance
@@ -45,6 +46,7 @@ def _():
         accuracy_score,
         go,
         load_data,
+        make_subplots,
         mean_squared_error,
         mo,
         np,
@@ -52,6 +54,7 @@ def _():
         permutation_importance,
         plot_tree,
         plt,
+        r2_score,
         train_test_split,
     )
 
@@ -315,7 +318,7 @@ def _(mo):
     return sl_depth, sl_trees
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     RandomForestClassifier,
     X_w,
@@ -495,9 +498,53 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(
+    RandomForestRegressor,
+    X_bos_te,
+    X_bos_tr,
+    go,
+    r2_score,
+    y_bos_te,
+    y_bos_tr,
+):
     # Uzupełnij kod poniżej
-    ...
+
+    n_estimators = [1, 5, 10, 20, 50, 100, 200, 500]
+
+    oob_scores = []
+    r2_scores = []
+
+    for n  in n_estimators:
+    
+        rf_reg = RandomForestRegressor(n_estimators=n, n_jobs=-1, oob_score=True, max_features='sqrt', random_state=1)
+
+        rf_reg.fit(X_bos_tr, y_bos_tr)
+
+        oob_scores.append(rf_reg.oob_score_)
+        r2_scores.append(r2_score(y_bos_te, rf_reg.predict(X_bos_te)))
+
+
+
+
+    fig_oob_r2 = go.Figure()
+    fig_oob_r2.add_scatter(
+        x=n_estimators, y=oob_scores,
+        mode='markers + lines', name='OOB score',
+        marker=dict(color='steelblue', size=7),
+    )
+    fig_oob_r2.add_scatter(
+        x=n_estimators, y=r2_scores,
+        mode='markers + lines', name='R2 score',
+        marker=dict(color='tomato', size=8, symbol='x-thin', line=dict(width=2)),
+    )
+    fig_oob_r2.update_layout(
+        title='Porównanie oob_score i r2_score vs liczba drzew',
+        xaxis_title='Liczba drzew',
+    )
+    fig_oob_r2.show()
+
+
+    
     return
 
 
@@ -520,16 +567,130 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(
+    RandomForestRegressor,
+    X_bos_te,
+    X_bos_tr,
+    go,
+    mean_squared_error,
+    y_bos_te,
+    y_bos_tr,
+):
     # Uzupełnij kod poniżej — podpunkt a)
-    ...
-    return
+
+    max_features = [1, 2, 3, 4, 6, 8, 10, 12]
+
+    mse_scores = []
+
+    for max_feature in max_features:
+    
+        rf_mse_reg = RandomForestRegressor(n_estimators=200, n_jobs=-1, max_features=max_feature, random_state=1)
+
+        rf_mse_reg.fit(X_bos_tr, y_bos_tr)
+
+        mse_scores.append(mean_squared_error(y_bos_te, rf_mse_reg.predict(X_bos_te)))
+
+
+
+
+    fig_mse = go.Figure()
+    fig_mse.add_scatter(
+        x=max_features, y=mse_scores,
+        mode='markers + lines', name='MSE score',
+        marker=dict(color='steelblue', size=7),
+    )
+
+    fig_mse.update_layout(
+        title='Porównanie MSE score vs max_feature',
+        xaxis_title='Max feature',
+        yaxis_title="MSE score"
+    )
+    fig_mse.show()
+
+
+    
+
+
+    return max_features, mse_scores
 
 
 @app.cell
-def _():
+def _(
+    RandomForestRegressor,
+    X_bos_te,
+    X_bos_tr,
+    make_subplots,
+    max_features,
+    mse_scores,
+    np,
+    y_bos_tr,
+):
     # Uzupełnij kod poniżej — podpunkt b)
-    ...
+
+    pearson_correlations = []
+
+    X_test_np = np.asarray(X_bos_te)
+
+    for max_f in max_features:
+    
+        rf_corr_reg = RandomForestRegressor(n_estimators=50, n_jobs=-1, max_features=max_f, random_state=1)
+
+        rf_corr_reg.fit(X_bos_tr, y_bos_tr)
+
+        # predykcje każdego drzewa osobno
+        tree_predictions = np.array([
+            tree.predict(X_test_np)
+            for tree in rf_corr_reg.estimators_
+        ])
+
+        # macierz korelacji: 50 x 50
+        corr_matrix = np.corrcoef(tree_predictions)
+
+        # bierzemy tylko korelacje poza przekątną
+        upper_triangle = np.triu_indices_from(corr_matrix, k=1)
+
+        mean_corr = corr_matrix[upper_triangle].mean()
+
+        pearson_correlations.append(mean_corr)
+
+
+    fig_mse_corr = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=("MSE vs max_features", "Średnia korelacja Pearsona vs max_features")
+    )
+
+    fig_mse_corr.add_scatter(
+        x=max_features,
+        y=mse_scores,
+        mode='lines+markers',
+        name='MSE score',
+        marker=dict(color='steelblue', size=7),
+        row=1,
+        col=1
+    )
+
+    fig_mse_corr.add_scatter(
+        x=max_features,
+        y=pearson_correlations,
+        mode='lines+markers',
+        name='Pearson correlation',
+        marker=dict(color='red', size=7),
+        row=1,
+        col=2
+    )
+
+    fig_mse_corr.update_xaxes(title_text='max_features', row=1, col=1)
+    fig_mse_corr.update_yaxes(title_text='MSE score', row=1, col=1)
+
+    fig_mse_corr.update_xaxes(title_text='max_features', row=1, col=2)
+    fig_mse_corr.update_yaxes(title_text='Średnia korelacja Pearsona', row=1, col=2)
+
+    fig_mse_corr.update_layout(
+        title='Porównanie MSE oraz średniej korelacji Pearsona vs max_features'
+    )
+
+    fig_mse_corr.show()
     return
 
 
