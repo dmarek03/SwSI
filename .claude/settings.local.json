@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run python -W ignore -c ' *)",
+      "Bash(jupyter nbconvert *)",
+      "Bash(python -c \"import json; nb=json.load\\(open\\('/Users/dominik/Desktop/AGH_STUDIES/SwSI/project_files/dota_rank_classifier.ipynb'\\)\\); print\\('Total cells:', len\\(nb['cells']\\)\\); print\\('Cell types:', [c['cell_type'] for c in nb['cells']]\\)\")",
+      "Bash(python3 -c \"import json; nb=json.load\\(open\\('/Users/dominik/Desktop/AGH_STUDIES/SwSI/project_files/dota_rank_classifier.ipynb'\\)\\); print\\('Total cells:', len\\(nb['cells']\\)\\); print\\('Cell types:', [c['cell_type'] for c in nb['cells']]\\)\")",
+      "Bash(python3)",
+      "Bash(uv run *)"
+    ]
+  }
+}
