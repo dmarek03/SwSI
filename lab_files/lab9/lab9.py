@@ -66,7 +66,17 @@ def _(mo):
     mo.md(r"""
     ## Dane: Adult (UCI)
 
-    Wczytujemy zbiór bezpośrednio z UCI i sprowadzamy wszystkie zmienne do dyskretnych etykiet — pgmpy operuje na zmiennych dyskretnych, a ograniczenie liczby poziomów zapobiega nadmiernemu rozrostowi i trochę uprości nam interpretację.
+    Wczytujemy zbiór bezpośrednio z UCI, wybieramy osiem kolumn tworzących reprezentatywny przekrój "demografia → praca → dochód" i sprowadzamy wszystkie zmienne do dyskretnych etykiet:
+
+    - `age` w trzech przedziałach: Young (<30), Mid (30–50), Senior (>50)
+    - `hours` w trzech przedziałach: Part (<35), Full (35–45), Over (>45)
+    - `education` skonsolidowane do pięciu poziomów (No-HS, HS, College, Bachelors, Advanced)
+    - `marital` skonsolidowane do trzech kategorii (Married, Single, Other)
+    - `occupation` skonsolidowane do czterech grup (White-collar, Blue-collar, Service, Other)
+    - `relationship`, `sex` zostają w oryginale
+    - `income` jako binarne (low/high)
+
+    Konsolidacje są arbitralne, ale uzasadniają je dwa cele: ograniczenie rozmiaru tablic CPD (które rosną iloczynowo z kardynalnością rodziców) oraz czytelność grafu po nauczeniu struktury.
     """)
     return
 
@@ -179,6 +189,8 @@ def _(adult, bn_struct_bic, nx, plt):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    Niektóre kierunki krawędzi mogą wydawać się odwrócone wobec intuicji (np. `education -> age` zamiast `age -> education`). HC z BIC nie jest w stanie odróżnić struktur z **tej samej klasy równoważności Markowa** — pary $A\to B$ i $A\leftarrow B$ generują ten sam zbiór niezależności warunkowych, gdy nie tworzą one v-struktury z trzecim węzłem. Rozróżnienie wymagałoby albo wiedzy domenowej, albo eksperymentów interwencyjnych (Koller & Friedman, rozdz. 3.4).
+
     ## Inna funkcja oceniająca — K2
 
     BIC nie jest jedyną sensowną funkcją oceny. **K2** (Cooper & Herskovits, 1992) to bayesowska funkcja oceniająca. W przeciwieństwie do BIC nie zawiera jawnego członu kary za złożoność, przez co zwykle dopuszcza nieco bogatsze grafy.
@@ -333,12 +345,73 @@ def _(mo):
     mo.md(r"""
     ## Próbkowanie z rozkładu
 
-    Sieć bayesowska reprezentuje pełny rozkład łączny, więc — odwracając kierunek użycia — możemy nią próbkować syntetyczne obserwacje. `simulate(N)` losuje wartości węzłów w porządku topologicznym: najpierw węzły bez rodziców z ich rozkładów brzegowych, potem kolejne — z odpowiednich CPD.
+    **a)** Wyświetl CPD dla wybranego węzła z większą liczbą rodziców niż `income` (np. dla `marital`, jeśli ma wielu rodziców w nauczonej strukturze; jeśli nie — wybierz inny). Ile parametrów liczy ta tablica? Porównaj z liczbą wpisów w pełnej tablicy łącznej dla tych samych zmiennych — ile rzędów wielkości oszczędności daje faktoryzacja?
+
+    **b)** Sprawdź własność otoczki Markowa empirycznie: dla zapytania `P(income | evidence)` porównaj wynik dla `evidence` zawierającego wyłącznie zmienne z otoczki Markowa `income` względem `evidence` z dodatkowymi zmiennymi spoza otoczki. Czy odpowiedzi są identyczne (tylko gdy faktycznie obserwujesz wszystkie zmienne otoczki)?
     """)
     return
 
 
 @app.cell
+def _(bn_model, inf, np):
+
+
+    income_parents = bn_model.get_parents('income')
+    print(f"Liczba rodziców 'income': {len(income_parents)}  ({income_parents})")
+
+
+    parents_count = {n: len(bn_model.get_parents(n))
+                     for n in bn_model.nodes() if n != 'income'}
+    target_node = max(parents_count, key=lambda n: parents_count[n])
+    target_parents = bn_model.get_parents(target_node)
+
+    print(f"\nWybrany węzeł: '{target_node}'  (rodziców: {len(target_parents)}: {target_parents})")
+
+    cpd = bn_model.get_cpds(target_node)
+    print(f"\nCPD dla '{target_node}':")
+    print(cpd)
+
+
+    node_card = len(cpd.state_names[target_node])
+    parent_cards = [len(cpd.state_names[p]) for p in target_parents]
+    parent_prod = int(np.prod(parent_cards)) if parent_cards else 1
+
+    cpd_params = (node_card - 1) * parent_prod
+    joint_entries = node_card * parent_prod
+    joint_params = joint_entries - 1
+
+    print(f"\nParametry CPD:              ({node_card}-1) × {' × '.join(map(str, parent_cards))} = {cpd_params}")
+    print(f"Wpisy pełnej tablicy łącznej: {node_card} × {' × '.join(map(str, parent_cards))} = {joint_entries}")
+    print(f"Stosunek (joint / CPD)      ≈ {joint_entries / cpd_params:.2f}×  "
+          f"| oszczędność ~{np.log10(joint_entries / cpd_params):.2f} rzędu wielkości")
+
+
+    print("\n" + "="*60)
+    print("b) Własność otoczki Markowa — weryfikacja empiryczna")
+    print("="*60)
+
+    mb = bn_model.get_markov_blanket('income')
+    all_non_income = [v for v in bn_model.nodes() if v != 'income']
+    outside_mb = [v for v in all_non_income if v not in mb]
+
+    print(f"\nOtoczka Markowa 'income': {sorted(mb)}")
+    print(f"Zmienne spoza otoczki:    {sorted(outside_mb)}")
+
+
+    evidence_mb = {v: bn_model.get_cpds(v).state_names[v][0] for v in sorted(mb)}
+
+
+    extra = outside_mb[:2] if outside_mb else []
+    evidence_full = {**evidence_mb,
+                     **{v: bn_model.get_cpds(v).state_names[v][0] for v in extra}}
+
+    q_mb   = inf.query(['income'], evidence=evidence_mb,   show_progress=False)
+    q_full = inf.query(['income'], evidence=evidence_full, show_progress=False)
+
+    print(f"\nEvidence — tylko otoczka Markowa: {evidence_mb}")
+    print(q_mb)
+    print(f"\nEvidence — otoczka + spoza ({extra}): {evidence_full}")
+    print(q_full)
 def _(bn_model):
     sample = bn_model.simulate(n_samples=10, show_progress=False)
     print(sample.to_string(index=False))
@@ -358,9 +431,26 @@ def _(mo):
 
 
 @app.cell
-def _():
-    # Uzupełnij kod poniżej
-    ...
+def _(adult, np, nx, plt):
+    adult_num = adult.copy()
+    for c in adult_num.columns:
+        adult_num[c] = adult_num[c].astype('category').cat.codes
+
+    cor = adult_num.corr()
+    threshold = 0.1
+    adj = (cor.abs() > threshold).values.copy()
+    np.fill_diagonal(adj, False)
+
+    G_thr = nx.from_numpy_array(adj)
+    G_thr = nx.relabel_nodes(G_thr, dict(enumerate(cor.columns)))
+
+    fig_thr, ax_thr = plt.subplots(figsize=(8, 6))
+    nx.draw(G_thr, nx.spring_layout(G_thr, seed=42, k=1.5),
+            with_labels=True, node_color='#a6c8fc', node_size=2200,
+            font_size=11, edge_color='gray', ax=ax_thr)
+    ax_thr.set_title(f"Graf z progowania |korelacji| > {threshold}")
+    plt.tight_layout()
+    plt.show()
     return
 
 
@@ -408,17 +498,120 @@ def _(bn_model, nx, plt):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    ## Separacja vs d-separacja
+
+    Niezależności warunkowe odczytuje się z grafu inaczej w MRF i w BN. W MRF działa zwykła **separacja**: $A\perp B\mid C$ wtedy i tylko wtedy, gdy każda ścieżka między dowolnym węzłem z $A$ a dowolnym węzłem z $B$ przechodzi przez $C$. W BN trzeba używać **d-separacji**, w której v-struktury (typu $A\to C\leftarrow B$) zachowują się odwrotnie: blokują ścieżkę gdy $C$ *nie* jest obserwowane, a otwierają gdy jest.
+
+    Praktyczna konsekwencja moralizacji: dodanie krawędzi między rodzicami zmiennej zaciera subtelność v-struktury. Po moralizacji nie da się już odczytać z grafu, że dwóch rodziców dziecka byłoby brzegowo niezależnych — graf sugeruje, że pozostają w bezpośredniej relacji. To strata informacji, którą trzeba świadomie zaakceptować przy korzystaniu z reprezentacji nieskierowanej.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ### Ćwiczenie 2
 
-    Znajdź w nauczonej sieci bayesowskiej węzeł z co najmniej dwoma rodzicami. Wykonaj test chi-kwadrat brzegowej niezależności tych rodziców (`scipy.stats.chi2_contingency`), a następnie powtórz test po warunkowaniu na wartościach wspólnego dziecka — czy wyniki się różnią?
+    **a)** Znajdź w nauczonej sieci bayesowskiej węzeł z co najmniej dwoma rodzicami i wskaż w jego strukturze v-strukturę (parę rodziców i ich wspólne dziecko). Po moralizacji rodzice tego węzła powinni być połączeni krawędzią — zweryfikuj to wizualnie, porównując graf skierowany i graf MRF.
+
+    **b)** Wykonaj test chi-kwadrat brzegowej niezależności tych dwóch rodziców (`scipy.stats.chi2_contingency` na tabeli kontyngencji). Czy są brzegowo niezależne, jak sugerowałaby v-struktura przed obserwacją dziecka? Następnie warunkuj zbiór po wartościach dziecka i ponownie wykonaj test — czy wyniki się różnią? Dlaczego MRF zmoralizowany "ukrywa" tę różnicę?
     """)
     return
 
 
 @app.cell
-def _():
-    # Uzupełnij kod poniżej
-    ...
+def _(adult, bn_model, mn, nx, pd, plt):
+    from scipy.stats import chi2_contingency
+
+
+    # V-struktura: Pa1 → Child ← Pa2, gdzie Pa1 i Pa2 NIE są ze sobą połączone
+    # w BN (brak krawędzi bezpośredniej). Pod warunkiem NIEobserwowania Child,
+    # Pa1 ⊥ Pa2 (ścieżka zablokowana). Obserwując Child "otwieramy" ścieżkę —
+    # to efekt "explaining away": wiedza o jednym rodzicu zmienia prawdopodobieństwo
+    # drugiego, bo oba "wyjaśniają" tę samą wartość dziecka.
+
+
+    child = max(bn_model.nodes(),
+                key=lambda n: len(bn_model.get_parents(n)))
+    parents = bn_model.get_parents(child)
+    pa1, pa2 = parents[0], parents[1]   # bierzemy dwa pierwsze
+
+    print(f"V-struktura: '{pa1}' → '{child}' ← '{pa2}'")
+    print(f"Czy {pa1}—{pa2} w BN (skierowanym)?  "
+          f"{bn_model.has_edge(pa1, pa2) or bn_model.has_edge(pa2, pa1)}")
+    print(f"Czy {pa1}—{pa2} w MRF (po moralizacji)?  "
+          f"{mn.has_edge(pa1, pa2)}")
+
+    # --- wizualizacja porównawcza BN vs MRF ---
+    G_bn_sub = nx.DiGraph()
+    G_bn_sub.add_nodes_from([pa1, pa2, child])
+    G_bn_sub.add_edges_from([(p, child) for p in [pa1, pa2]
+                              if bn_model.has_edge(p, child)])
+
+    # tylko krawędzie między pa1, pa2, child — nie wciągamy ich sąsiadów
+    trio = {pa1, pa2, child}
+    G_mrf_sub = nx.Graph()
+    G_mrf_sub.add_nodes_from(trio)
+    G_mrf_sub.add_edges_from((u, v) for u, v in mn.edges() if {u, v} <= trio)
+
+    fig2, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(11, 4))
+    pos = {pa1: (-1, 0), pa2: (1, 0), child: (0, -1)}
+
+    nx.draw(G_bn_sub, pos, with_labels=True, ax=ax_l,
+            node_color='#fcb1a6', node_size=2000, font_size=10,
+            arrows=True, arrowsize=22, edge_color='gray',
+            connectionstyle='arc3,rad=0.05')
+    ax_l.set_title(f"BN (skierowany)\n{pa1} i {pa2} NIE połączone")
+
+    highlight = [(pa1, pa2)] if G_mrf_sub.has_edge(pa1, pa2) else []
+    other_edges = [e for e in G_mrf_sub.edges() if set(e) != {pa1, pa2}]
+    nx.draw(G_mrf_sub, pos, with_labels=True, ax=ax_r,
+            node_color='#bca6fc', node_size=2000, font_size=10, edge_color='gray')
+    nx.draw_networkx_edges(G_mrf_sub, pos, edgelist=highlight,
+                           edge_color='red', width=3, ax=ax_r)
+    ax_r.set_title(f"MRF po moralizacji\n{pa1}—{pa2} dodane (czerwona krawędź)")
+
+    plt.suptitle("V-struktura: BN vs MRF", fontsize=12)
+    plt.tight_layout()
+    plt.show()
+
+    # ---- b) Test chi-kwadrat: niezależność brzegowa vs warunkowa ----
+    #
+    # H₀ dla testu chi-kwadrat: zmienne są niezależne (P(A,B) = P(A)·P(B)).
+    # Małe p-value → odrzucamy H₀ → zmienne są zależne.
+    #
+    # Spodziewamy się:
+    #  • BRZEGOWO: jeśli Pa1 i Pa2 tworzą "czystą" v-strukturę, powinny być
+    #    niezależne (p duże). W praktyce mogą być słabo zależne przez inne ścieżki.
+    #  • WARUNKOWO (po Child): obserwacja dziecka otwiera v-strukturę —
+    #    Pa1 staje się zależna od Pa2 (p małe). To efekt "explaining away".
+    #
+    # MRF zmoralizowany dodaje krawędź Pa1—Pa2, ukrywając fakt, że ta zależność
+    # jest INDUKOWANA przez obserwację dziecka, a nie bezpośrednia.
+
+    print("\n" + "="*60)
+    print("b) Chi-kwadrat: niezależność Pa1 ⊥ Pa2")
+    print("="*60)
+
+    # test brzegowy
+    ct_marginal = pd.crosstab(adult[pa1], adult[pa2])
+    chi2_m, p_m, dof_m, _ = chi2_contingency(ct_marginal)
+    print(f"\nTest BRZEGOWY P({pa1} ⊥ {pa2}):")
+    print(f"  chi2={chi2_m:.2f}  df={dof_m}  p={p_m:.4f}")
+    if p_m > 0.05:
+        print("  => p > 0.05: NIE odrzucamy H₀ — brzegowo niezależne (zgodnie z v-strukturą)")
+    else:
+        print("  => p ≤ 0.05: odrzucamy H₀ — brzegowo ZALEŻNE (inne ścieżki w grafie)")
+
+    # test warunkowy: dla każdej wartości Child
+    print(f"\nTest WARUNKOWY P({pa1} ⊥ {pa2} | {child}=x):")
+    for val in sorted(adult[child].unique()):
+        sub = adult[adult[child] == val]
+        ct_cond = pd.crosstab(sub[pa1], sub[pa2])
+        chi2_c, p_c, dof_c, _ = chi2_contingency(ct_cond)
+        tag = "niezależne" if p_c > 0.05 else "ZALEŻNE  ← explaining away"
+        print(f"  {child}={val:<10s}  chi2={chi2_c:7.2f}  df={dof_c}  p={p_c:.4f}  → {tag}")
+
     return
 
 
