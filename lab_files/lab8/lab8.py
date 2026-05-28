@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.3"
+__generated_with = "0.23.4"
 app = marimo.App(width="medium")
 
 
@@ -37,16 +37,17 @@ def _():
     import numpy as np
     import pandas as pd
     import plotly.graph_objects as go
-    from sklearn.model_selection import train_test_split
+    from sklearn.model_selection import train_test_split, GridSearchCV
     from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
     from ISLP import load_data
     import xgboost as xgb
     import lightgbm as lgb
-    from catboost import CatBoostClassifier, Pool
+    from catboost import CatBoostClassifier, Pool,CatBoostRegressor
     from catboost.utils import get_confusion_matrix
 
     return (
         CatBoostClassifier,
+        CatBoostRegressor,
         Pool,
         get_confusion_matrix,
         go,
@@ -55,6 +56,7 @@ def _():
         mean_squared_error,
         mo,
         pd,
+        time,
         train_test_split,
         xgb,
     )
@@ -159,9 +161,37 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(X_bos_te, X_bos_tr, mean_squared_error, pd, xgb, y_bos_te, y_bos_tr):
     # Uzupełnij kod poniżej
-    ...
+
+    n_estimators =  [100, 200, 400, 600, 800]
+    learing_rates = [0.01, 0.05, 0.2, 0.5, 1]
+
+    rows = []
+
+    for n_e in n_estimators:
+        for l_r in learing_rates:
+            model = xgb.XGBRegressor(
+                n_estimators=n_e,
+                max_depth=3,
+                learning_rate=l_r,
+                reg_lambda=1.0,
+                subsample=0.8,
+                random_state=42,
+            )
+            model.fit(X_bos_tr, y_bos_tr)
+            model_mse = mean_squared_error(y_bos_te, model.predict(X_bos_te))
+
+            row = {
+                "n_estimators" : n_e,
+                "learning_rate" : l_r,
+                "MSE": model_mse
+            }
+
+            rows.append(row)
+
+    df = pd.DataFrame(rows)
+    df.sort_values(by=["MSE"])      
     return
 
 
@@ -201,7 +231,7 @@ def _(X_bos_tr, lgb, train_test_split, y_bos_tr):
         callbacks=[lgb.early_stopping(stopping_rounds=30, verbose=False)],
     )
     print(f"Najlepsza iteracja (early stopping): {lgb_model.best_iteration_} z 2000")
-    return (lgb_model,)
+    return X_bos_tr2, X_bos_val, lgb_model, y_bos_tr2, y_bos_val
 
 
 @app.cell
@@ -289,9 +319,125 @@ def _(mo):
 
 
 @app.cell
-def _():
-    # Uzupełnij kod poniżej
-    ...
+def _(
+    X_bos_te,
+    X_bos_tr2,
+    X_bos_val,
+    lgb,
+    mean_squared_error,
+    pd,
+    y_bos_te,
+    y_bos_tr2,
+    y_bos_val,
+):
+    num_leaves = [7, 31, 67, 127, 250]
+
+    lgb_rows = []
+
+    for n_l in num_leaves:
+        light_gb_model = lgb.LGBMRegressor(
+            n_estimators=2000,
+            num_leaves=n_l,
+            learning_rate=0.05,
+            random_state=42,
+            verbose=-1,
+        )
+
+        light_gb_model.fit(
+            X_bos_tr2, y_bos_tr2,
+            eval_set=[(X_bos_val, y_bos_val)],
+            callbacks=[lgb.early_stopping(stopping_rounds=30, verbose=False)],
+        )
+
+        train_pred = light_gb_model.predict(X_bos_tr2)
+        val_pred = light_gb_model.predict(X_bos_val)
+        test_pred = light_gb_model.predict(X_bos_te)
+
+        lgb_row = {
+            "num_leaves": n_l,
+            "best_iteration": light_gb_model.best_iteration_,
+            "train_MSE": mean_squared_error(y_bos_tr2, train_pred),
+            "val_MSE": mean_squared_error(y_bos_val, val_pred),
+            "test_MSE": mean_squared_error(y_bos_te, test_pred),
+        }
+
+        lgb_rows.append(lgb_row)
+
+    pd.DataFrame(lgb_rows)
+    return
+
+
+@app.cell
+def _(
+    X_bos_te,
+    X_bos_tr,
+    X_bos_tr2,
+    X_bos_val,
+    lgb,
+    mean_squared_error,
+    pd,
+    time,
+    y_bos_te,
+    y_bos_tr,
+    y_bos_tr2,
+    y_bos_val,
+):
+
+    best_num_leaves = 31  
+
+    lgb_es_model = lgb.LGBMRegressor(
+        n_estimators=2000,
+        num_leaves=best_num_leaves,
+        learning_rate=0.05,
+        random_state=42,
+        verbose=-1,
+    )
+
+    start = time.perf_counter()
+
+    lgb_es_model.fit(
+        X_bos_tr2, y_bos_tr2,
+        eval_set=[(X_bos_val, y_bos_val)],
+        callbacks=[lgb.early_stopping(stopping_rounds=30, verbose=False)],
+    )
+
+    es_time = time.perf_counter() - start
+    es_mse = mean_squared_error(y_bos_te, lgb_es_model.predict(X_bos_te))
+
+
+
+    lgb_full_model = lgb.LGBMRegressor(
+        n_estimators=2000,
+        num_leaves=best_num_leaves,
+        learning_rate=0.05,
+        random_state=42,
+        verbose=-1,
+    )
+
+    start = time.perf_counter()
+
+    lgb_full_model.fit(
+        X_bos_tr, y_bos_tr   
+    )
+
+    full_time = time.perf_counter() - start
+    full_mse = mean_squared_error(y_bos_te, lgb_full_model.predict(X_bos_te))
+
+
+    pd.DataFrame([
+        {
+            "model": "early_stopping",
+            "n_estimators_used": lgb_es_model.best_iteration_,
+            "test_MSE": es_mse,
+            "training_time": es_time,
+        },
+        {
+            "model": "no_early_stopping",
+            "n_estimators_used": 2000,
+            "test_MSE": full_mse,
+            "training_time": full_time,
+        }
+    ])
     return
 
 
@@ -447,13 +593,148 @@ def _(pd):
     wine = pd.concat([winequality_white, winequality_red], ignore_index=True)
     print(f"Wine quality: {wine.shape[0]} obserwacji, {wine.shape[1]} kolumn")
     wine.head()
-    return
+    return (wine,)
 
 
 @app.cell
-def _():
-    # Uzupełnij kod poniżej
-    ...
+def _(
+    CatBoostRegressor,
+    cat_model,
+    lgb,
+    mean_squared_error,
+    pd,
+    time,
+    train_test_split,
+    wine,
+    xgb,
+):
+    X_wine = wine.drop(columns=["quality"])
+    y_wine = wine["quality"]
+
+
+
+    X_wine = pd.get_dummies(X_wine, columns=["type"], drop_first=True)
+    X_wine_train_full, X_wine_test, y_wine_train_full, y_wine_test = train_test_split(
+        X_wine,
+        y_wine,
+        test_size=0.2,
+        random_state=42
+    )
+
+
+    X_wine_train, X_wine_val, y_wine_train, y_wine_val = train_test_split(
+        X_wine_train_full,
+        y_wine_train_full,
+        test_size=0.2,
+        random_state=42
+    )
+
+
+    summary_rows = []
+
+
+    # --------------------
+    # XGBoost
+    # --------------------
+    xgb_model_wine = xgb.XGBRegressor(
+        n_estimators=1000,
+        max_depth=3,
+        learning_rate=0.01,
+        reg_lambda=1.0,
+        subsample=0.8,
+        random_state=42,
+        early_stopping_rounds=30,
+        objective="reg:squarederror",
+    )
+
+    start_t = time.perf_counter()
+
+    xgb_model_wine.fit(
+        X_wine_train,
+        y_wine_train,
+        eval_set=[(X_wine_val, y_wine_val)],
+        verbose=False,
+    )
+
+    end_t = time.perf_counter()
+
+    xgb_pred = xgb_model_wine.predict(X_wine_test)
+
+    summary_rows.append({
+        "model": "XGBoost",
+        "MSE": mean_squared_error(y_wine_test, xgb_pred),
+        "training_time": round(end_t - start_t, 6),
+        "n_estimators_used": xgb_model_wine.best_iteration + 1 if hasattr(xgb_model_wine, "best_iteration") else 1000,
+    })
+
+
+    # --------------------
+    # LightGBM
+    # --------------------
+    lgb_model_wine = lgb.LGBMRegressor(
+        n_estimators=1000,
+        num_leaves=31,
+        learning_rate=0.01,
+        random_state=42,
+        verbose=-1,
+    )
+
+    start_t = time.perf_counter()
+
+    lgb_model_wine.fit(
+        X_wine_train,
+        y_wine_train,
+        eval_set=[(X_wine_val, y_wine_val)],
+        callbacks=[lgb.early_stopping(stopping_rounds=30, verbose=False)],
+    )
+
+    end_t = time.perf_counter()
+
+    lgb_pred = lgb_model_wine.predict(X_wine_test)
+
+    summary_rows.append({
+        "model": "LightGBM",
+        "MSE": mean_squared_error(y_wine_test, lgb_pred),
+        "training_time": round(end_t - start_t, 6),
+        "n_estimators_used": lgb_model_wine.best_iteration_,
+    })
+
+
+    # --------------------
+    # CatBoost
+    # --------------------
+    cat_model_wine = CatBoostRegressor(
+        iterations=1000,
+        depth=4,
+        learning_rate=0.01,
+        loss_function="RMSE",
+        random_seed=42,
+        verbose=False,
+    )
+
+    start_t = time.perf_counter()
+
+    cat_model_wine.fit(
+        X_wine_train,
+        y_wine_train,
+        eval_set=(X_wine_val, y_wine_val),
+        early_stopping_rounds=30,
+        verbose=False,
+    )
+
+    end_t = time.perf_counter()
+
+    cat_pred = cat_model_wine.predict(X_wine_test)
+
+    summary_rows.append({
+        "model": "CatBoost",
+        "MSE": mean_squared_error(y_wine_test, cat_pred),
+        "training_time": round(end_t - start_t, 6),
+        "n_estimators_used": cat_model.best_iteration_,
+    })
+
+
+    pd.DataFrame(summary_rows,)
     return
 
 
