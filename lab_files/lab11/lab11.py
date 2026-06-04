@@ -24,6 +24,13 @@ def _(mo):
 
 @app.cell
 def _():
+    import marimo as mo
+
+    return (mo,)
+
+
+@app.cell
+def _():
     import time
     import warnings
     warnings.filterwarnings("ignore", category=UserWarning)
@@ -34,7 +41,7 @@ def _():
     import plotly.express as px
     import plotly.graph_objects as go
     import matplotlib.pyplot as plt
-
+    import cmaes
     from sklearn.datasets import fetch_openml
     from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
     from sklearn.metrics import mean_squared_error, r2_score
@@ -223,8 +230,9 @@ def _(TPESampler, X_train, cross_val_score, lgb, optuna, time, y_train):
     )
 
     _t0 = time.perf_counter()
+    t1 = time.perf_counter()
     study.optimize(objective, n_trials=30, show_progress_bar=False)
-    t_optuna = time.perf_counter() - _t0
+    t_optuna = time.perf_counter() - t1
 
     print(f"Optuna (TPE, 30 prób): {t_optuna:.1f}s")
     print(f"Najlepszy RMSE (CV): {study.best_value:.2f}")
@@ -351,9 +359,9 @@ def _(
         pruner=MedianPruner(n_startup_trials=5, n_warmup_steps=30),
     )
 
-    _t0 = time.perf_counter()
+    t2 = time.perf_counter()
     study_pruned.optimize(objective_pruned, n_trials=30, show_progress_bar=False)
-    t_pruned = time.perf_counter() - _t0
+    t_pruned = time.perf_counter() - t2
 
     n_pruned = sum(t.state.name == "PRUNED" for t in study_pruned.trials)
     n_complete = sum(t.state.name == "COMPLETE" for t in study_pruned.trials)
@@ -448,10 +456,42 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(TPESampler, X_train, cross_val_score, lgb, optuna, time, y_train):
     # Uzupełnij kod poniżej
-    ...
-    return
+
+    def objective2(trial):
+        params = {
+            "num_leaves": trial.suggest_int("num_leaves", 8, 128),
+            "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.2, log=True),
+            "n_estimators": trial.suggest_int("n_estimators", 100, 800),
+            "min_child_samples": trial.suggest_int("min_child_samples", 5, 50),
+            "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+            "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+        }
+        model = lgb.LGBMRegressor(random_state=42, verbose=-1, **params)
+        scores = cross_val_score(
+            model, X_train, y_train, cv=5,
+            scoring="neg_root_mean_squared_error", n_jobs=-1,
+        )
+        return -scores.mean()
+
+
+    study2 = optuna.create_study(
+        direction="minimize",
+        sampler=TPESampler(seed=42),
+        study_name="lgbm_bike_tpe_cv5",
+    )
+
+    t4 = time.perf_counter()
+    study2.optimize(objective2, n_trials=20, show_progress_bar=True)
+    t_optuna2 = time.perf_counter() - t4
+
+    print(f"Optuna (TPE, 20 prób): {t_optuna2:.1f}s")
+    print(f"Najlepszy RMSE (CV): {study2.best_value:.2f}")
+    print(f"Najlepsze parametry:")
+    for k2, v2 in study2.best_params.items():
+        print(f"  {k2}: {v2}")
+    return (objective2,)
 
 
 @app.cell(hide_code=True)
@@ -488,9 +528,9 @@ def _(
         "verbose": 0,
     }
 
-    _t0 = time.perf_counter()
+    t5 = time.perf_counter()
     automl.fit(X_train, y_train, **settings)
-    t_flaml = time.perf_counter() - _t0
+    t_flaml = time.perf_counter() - t5
 
     flaml_pred = automl.predict(X_test)
     flaml_rmse = np.sqrt(mean_squared_error(y_test, flaml_pred))
@@ -532,8 +572,8 @@ def _(automl, go, pd):
     fig_flaml.show()
 
     print(f"\nNajlepsza konfiguracja ({automl.best_estimator}):")
-    for _k, _v in automl.best_config.items():
-        print(f"  {_k}: {_v}")
+    for k5, v5 in automl.best_config.items():
+        print(f"  {k5}: {v5}")
     return
 
 
@@ -552,9 +592,51 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(
+    TPESampler,
+    X_train,
+    cross_val_score,
+    lgb,
+    objective2,
+    optuna,
+    study_rmlse,
+    time,
+    y_train,
+):
     # Uzupełnij kod poniżej
-    ...
+
+    def objective_with_rmsle(trial):
+        params = {
+            "num_leaves": trial.suggest_int("num_leaves", 8, 128),
+            "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.2, log=True),
+            "n_estimators": trial.suggest_int("n_estimators", 100, 800),
+            "min_child_samples": trial.suggest_int("min_child_samples", 5, 50),
+            "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+            "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+        }
+        model = lgb.LGBMRegressor(random_state=42, verbose=-1, **params)
+        scores = cross_val_score(
+            model, X_train, y_train, cv=5,
+            scoring="neg_root_mean_squared_logarithmic_error", n_jobs=-1,
+        )
+        return -scores.mean()
+
+
+    study_rmsle = optuna.create_study(
+        direction="minimize",
+        sampler=TPESampler(seed=42),
+        study_name="lgbm_bike_tpe_rmsle",
+    )
+
+    t6 = time.perf_counter()
+    study_rmsle.optimize(objective2, n_trials=20, show_progress_bar=True)
+    t_optuna_rmsle = time.perf_counter() - t6
+
+    print(f"Optuna (TPE, 20 prób): {t_optuna_rmsle:.1f}s")
+    print(f"Najlepszy RMSE (CV): {study_rmlse.best_value:.2f}")
+    print(f"Najlepsze parametry:")
+    for k6, v6 in study_rmlse.best_params.items():
+        print(f"  {k6}: {v6}")
     return
 
 
