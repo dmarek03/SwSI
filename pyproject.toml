@@ -32,4 +32,5 @@ dependencies = [
     "joblib>=1.5.3",
     "optuna>=4.8.0",
     "cmaes>=0.13.0",
+    "ruff>=0.15.16",
 ]
